@@ -6,7 +6,8 @@ from typing import List, Dict, Tuple
 """
 Before submitting the assignment, describe here in a few sentences what you would have built next if you spent 2 more hours on this project:
 
-If I had two more hours, I would implement an interactive Web UI (using Streamlit or Gradio) to make the storytelling experience more engaging for children, potentially integrating an AI image generator to provide illustrations for each story segment. I would also add a "Memory" component to retain context across multiple storytelling sessions, allowing for recurring characters and long-term world-building. Finally, I'd implement structured logging and LangSmith tracing to better evaluate the Judge's effectiveness and track prompt performance over time.
+If I had two more hours, I would implement an interactive Web UI (using Streamlit or Gradio) to make the storytelling experience more engaging for children, potentially integrating an AI image generator to provide illustrations for each story segment.
+I would also add a "Memory" component to retain context across multiple storytelling sessions, allowing for recurring characters and long-term world-building. Finally, I'd implement structured logging and LangSmith tracing to better evaluate the Judge's effectiveness and track prompt performance over time.
 """
 
 def call_model(messages: List[Dict[str, str]], max_tokens: int = 3000, temperature: float = 0.7) -> str:
