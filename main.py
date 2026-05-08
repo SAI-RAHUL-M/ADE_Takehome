@@ -6,20 +6,19 @@ from typing import List, Dict, Tuple
 """
 Before submitting the assignment, describe here in a few sentences what you would have built next if you spent 2 more hours on this project:
 
-If I had two more hours, I would implement an interactive Web UI (using Streamlit or Gradio) to make the storytelling experience more engaging for children, potentially integrating an AI image generator to provide illustrations for each story segment.
-I would also add a "Memory" component to retain context across multiple storytelling sessions, allowing for recurring characters and long-term world-building. Finally, I'd implement structured logging and LangSmith tracing to better evaluate the Judge's effectiveness and track prompt performance over time.
+If I had two more hours, I would implement a Web UI (using Streamlit or Gradio) for a more interactive experience, complete with AI-generated DALL-E illustrations for each "Act" of the story. 
+I would also add a "Memory" abstraction to allow recurring characters across multiple storytelling sessions, and I would integrate LangSmith to trace the multi-agent token usage and evaluate the Judge's strictness over time.
 """
 
-def call_model(messages: List[Dict[str, str]], max_tokens: int = 3000, temperature: float = 0.7) -> str:
+def call_model(messages: List[Dict[str, str]], max_tokens: int = 2000, temperature: float = 0.7) -> str:
     """
-    Calls the OpenAI API. Supports both older (openai<1.0.0) and newer (openai>=1.0.0)
-    SDK versions to ensure compatibility regardless of the local environment.
+    Calls the OpenAI API using gpt-3.5-turbo.
+    Supports both older (openai<1.0.0) and newer (openai>=1.0.0) SDK versions.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable not set. Please set it before running.")
     
-    # Attempt to use the newer OpenAI client (openai >= 1.0.0)
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
@@ -32,7 +31,6 @@ def call_model(messages: List[Dict[str, str]], max_tokens: int = 3000, temperatu
         )
         return resp.choices[0].message.content or ""
     except ImportError:
-        # Fallback to the older OpenAI API syntax (openai < 1.0.0)
         openai.api_key = api_key
         resp = openai.ChatCompletion.create( # type: ignore
             model="gpt-3.5-turbo",
@@ -44,122 +42,162 @@ def call_model(messages: List[Dict[str, str]], max_tokens: int = 3000, temperatu
         return resp.choices[0].message["content"] # type: ignore
 
 
+# ==========================================
+# AGENT 1: The Categorizer
+# ==========================================
 def categorize_request(user_input: str) -> str:
-    """Categorizes the user's request into a literary genre."""
+    """Analyzes the request to determine genre, tone, and a core educational value."""
     system_prompt = (
-        "You are an expert children's story categorizer. "
-        "Categorize the following story request into one of these genres: "
-        "Fantasy, Sci-Fi, Adventure, Educational, Animal Fable, or General. "
-        "Only reply with the genre name, nothing else."
+        "You are an expert children's literature analyst. "
+        "Analyze the user's story request and determine the best approach for a 5-10 year old audience. "
+        "Provide exactly three things in the following format:\n"
+        "Genre: [e.g., Sci-Fi, Fantasy, Fable]\n"
+        "Tone: [e.g., Whimsical, Calming, Adventurous]\n"
+        "Core Value: [e.g., Courage, Sharing, Curiosity]"
     )
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_input}
+        {"role": "user", "content": f"Request: {user_input}"}
     ]
-    return call_model(messages, max_tokens=10, temperature=0.1).strip()
+    return call_model(messages, max_tokens=150, temperature=0.3).strip()
 
 
-def generate_story(user_input: str, genre: str, previous_draft: str = "", judge_feedback: str = "", user_feedback: str = "") -> str:
-    """Generates or revises the story based on the prompts and feedback."""
+# ==========================================
+# AGENT 2: The Arc Planner
+# ==========================================
+def plan_story_arc(user_input: str, category_details: str) -> str:
+    """Creates a structured 3-act outline to ensure the story has a satisfying narrative arc."""
     system_prompt = (
-        f"You are a master storyteller for children ages 5 to 10. "
-        f"Your genre is {genre}. Create a captivating, age-appropriate story with a clear beginning, middle, and end, "
-        f"and a positive or educational underlying message. Keep the language simple but engaging."
+        "You are a master story outliner for children's books. "
+        "Based on the user's request and the provided literary analysis, create a compelling 3-act story arc. "
+        "Ages: 5 to 10. "
+        "Format your response EXACTLY like this:\n\n"
+        "Characters: [List the main characters]\n"
+        "Setting: [Describe the world]\n"
+        "Act 1 (Introduction): [The setup and inciting incident]\n"
+        "Act 2 (Conflict): [The challenge or adventure the characters face]\n"
+        "Act 3 (Resolution): [How it resolves and the moral learned]"
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"User Request: {user_input}\n\nAnalysis:\n{category_details}"}
+    ]
+    return call_model(messages, max_tokens=400, temperature=0.7).strip()
+
+
+# ==========================================
+# AGENT 3: The Storyteller
+# ==========================================
+def generate_story(user_input: str, category_details: str, arc: str, previous_draft: str = "", judge_feedback: str = "", user_feedback: str = "") -> str:
+    """Drafts or revises the story based on the planned arc and feedback."""
+    system_prompt = (
+        f"You are a beloved, imaginative storyteller for children ages 5 to 10. "
+        f"You are writing a story based on the following framework:\n\n"
+        f"--- ANALYSIS ---\n{category_details}\n\n"
+        f"--- STORY ARC ---\n{arc}\n\n"
+        f"Follow the arc closely. Use engaging, sensory language suitable for children. Ensure clear paragraph breaks and excellent pacing."
     )
     
-    if not previous_draft:
-        user_prompt = f"Write a story based on this request: {user_input}"
-    elif judge_feedback:
+    if judge_feedback:
         user_prompt = (
             f"Here was your previous draft:\n\n{previous_draft}\n\n"
-            f"An expert judge provided this feedback: {judge_feedback}\n\n"
-            f"Please rewrite and improve the story based on this feedback, while still fulfilling the original request: {user_input}"
+            f"An expert editor provided this critical feedback: {judge_feedback}\n\n"
+            f"Please rewrite and improve the story based on this feedback, making it even better for the reader."
         )
     elif user_feedback:
         user_prompt = (
             f"Here was your previous draft:\n\n{previous_draft}\n\n"
-            f"The reader provided this feedback: {user_feedback}\n\n"
-            f"Please revise the story to incorporate their feedback. Original request: {user_input}"
+            f"The reader wants to make a change! They said: '{user_feedback}'\n\n"
+            f"Please revise the story to creatively incorporate their request."
         )
     else:
-        user_prompt = f"Write a story based on this request: {user_input}"
+        user_prompt = f"Write the story! The original user request was: {user_input}"
         
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
-    return call_model(messages, max_tokens=2000, temperature=0.7)
+    return call_model(messages, max_tokens=800, temperature=0.8)
 
 
-def judge_story(story: str, user_input: str) -> Dict:
-    """Evaluates the story draft and provides a score and actionable feedback."""
+# ==========================================
+# AGENT 4: The Judge
+# ==========================================
+def judge_story(story: str, user_input: str, arc: str) -> Dict:
+    """Evaluates the draft for quality, pacing, age-appropriateness, and arc fulfillment."""
     system_prompt = (
         "You are an expert editor and judge for children's literature (ages 5-10). "
-        "Evaluate the provided story draft based on the original request. "
-        "Consider age-appropriateness, pacing, engagement, vocabulary, and whether it fulfills the request. "
-        "Provide your response in strictly valid JSON format with two keys: "
-        "'score' (an integer from 1 to 10) and 'feedback' (a string with specific, actionable critique for the storyteller to improve the story). "
-        "Do not include any markdown formatting like ```json in the output, just the raw JSON object."
+        "Evaluate the provided story draft. Does it follow the intended story arc? Is it age-appropriate? Is it engaging? "
+        "Does it fulfill the user's original request?\n\n"
+        "You MUST respond in strictly valid JSON format with exactly two keys: "
+        "'score' (an integer from 1 to 10) and 'feedback' (a string with specific, actionable critique). "
+        "Do not include markdown blocks like ```json."
     )
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Original Request: {user_input}\n\nStory Draft:\n{story}"}
+        {"role": "user", "content": f"Original Request: {user_input}\n\nIntended Arc:\n{arc}\n\nStory Draft:\n{story}"}
     ]
     
     response_text = call_model(messages, max_tokens=500, temperature=0.2)
     
     try:
-        # Clean up possible markdown artifacts from the model's response
         cleaned_text = response_text.replace("```json", "").replace("```", "").strip()
-        result = json.loads(cleaned_text)
-        return result
+        return json.loads(cleaned_text)
     except json.JSONDecodeError:
-        # Fallback in case the model fails to return valid JSON
-        return {"score": 10, "feedback": "Failed to parse judge's feedback. Moving forward with the story as is."}
+        return {"score": 10, "feedback": "Failed to parse judge's feedback. Assuming it is good enough to proceed."}
 
 
-def storytelling_pipeline(user_input: str) -> Tuple[str, str]:
-    """Manages the generation, evaluation, and revision loop for the story."""
-    print(f"\n[System] Categorizing request...")
-    genre = categorize_request(user_input)
-    print(f"[System] Genre identified: {genre}")
+# ==========================================
+# PIPELINE ORCHESTRATION
+# ==========================================
+def storytelling_pipeline(user_input: str) -> Tuple[str, str, str]:
+    print(f"\n[🪄 Magic Hat] Analyzing your request to find the perfect mix of wonder and adventure...")
+    print(f"(Note: The 4-agent pipeline may take 30-60 seconds to complete. Magic takes time! ✨)")
+    category_details = categorize_request(user_input)
+    print(f"[🪄  Magic Hat] Aha! Here is the secret formula:\n{category_details}\n")
+    
+    print(f"[📜 Arc Planner] Waking up the master architect to sketch out the 3-act storyline...")
+    arc = plan_story_arc(user_input, category_details)
+    print(f"[📜 Arc Planner] The blueprint is ready!\n")
     
     draft = ""
     feedback = ""
-    max_revisions = 2
+    max_revisions = 1
     
     for iteration in range(max_revisions + 1):
         if iteration == 0:
-            print("[System] Generating initial story draft...")
+            print("[🖋️  Storyteller] Dipping the quill in invisible ink to draft the story...")
         else:
-            print(f"[System] Revising story based on judge's feedback (Iteration {iteration})...")
+            print(f"[🖋️  Storyteller] Grumbling slightly, the Storyteller is revising the draft (Revision {iteration}/{max_revisions})...")
             
-        draft = generate_story(user_input, genre, previous_draft=draft, judge_feedback=feedback)
+        draft = generate_story(user_input, category_details, arc, previous_draft=draft, judge_feedback=feedback)
         
-        print("[System] Judging story...")
-        judge_result = judge_story(draft, user_input)
+        print("[🧐 The Judge] Putting on reading glasses to rigorously evaluate the story...")
+        judge_result = judge_story(draft, user_input, arc)
         score = judge_result.get("score", 0)
         feedback = judge_result.get("feedback", "")
         
-        print(f"[Judge] Score: {score}/10")
-        print(f"[Judge] Feedback: {feedback}")
+        print(f"[🧐 The Judge] Score: {score}/10")
+        print(f"[🧐 The Judge] Critique: {feedback}")
         
         if score >= 8:
-            print("[System] Story passed the judge's quality threshold!")
+            print("[✨ System] The Judge smiled! The story is approved.")
             break
         elif iteration < max_revisions:
-            print("[System] Story needs improvement. Sending back to storyteller...")
+            print("[✨ System] The Judge wants it to be even more magical. Sending it back for a rewrite...")
         else:
-            print("[System] Max revisions reached. Presenting the final draft.")
+            print("[✨ System] Maximum revisions reached. Polishing the final masterpiece.")
             
-    return draft, genre
+    return draft, category_details, arc
 
 
 def main():
-    print("Welcome to the AI Bedtime Storyteller!")
-    user_input = input("What kind of story do you want to hear? ")
+    print("========================================")
+    print(" Welcome to the AI Bedtime Storyteller! ")
+    print("========================================")
+    user_input = input("What kind of story do you want to hear today? ")
     
-    story, genre = storytelling_pipeline(user_input)
+    story, category_details, arc = storytelling_pipeline(user_input)
     
     while True:
         print("\n" + "="*50)
@@ -169,19 +207,18 @@ def main():
         print("\n" + "="*50)
         
         print("\nWould you like to make any changes to the story?")
-        print("1. Yes, I have feedback for changes.")
-        print("2. No, I love it! (Exit)")
+        print("1. Yes, I have feedback for changes!")
+        print("2. No, it's perfect! (Exit)")
         choice = input("Enter your choice (1 or 2): ").strip()
         
         if choice == '1':
-            user_feedback = input("\nWhat would you like to change? ")
-            print("\n[System] Generating revised story based on your feedback...")
-            # We bypass the full judging pipeline here to provide a quick response to the user's specific request
-            story = generate_story(user_input, genre, previous_draft=story, user_feedback=user_feedback)
+            user_feedback = input("\nWhat would you like to change? (e.g., 'Make the dragon friendlier', 'Add a magical sword'): ")
+            print("\n[🖋️  Storyteller] *Sighs dramatically*, rolls up sleeves, and gets back to work...")
+            # Generate a rapid revision incorporating user feedback without looping back to the Judge
+            story = generate_story(user_input, category_details, arc, previous_draft=story, user_feedback=user_feedback)
         else:
-            print("\nSweet dreams! Thanks for using the AI Bedtime Storyteller.")
+            print("\nSweet dreams! Thanks for reading with the AI Bedtime Storyteller.")
             break
-
 
 if __name__ == "__main__":
     main()
