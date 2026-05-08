@@ -10,36 +10,16 @@ If I had two more hours, I would implement a Web UI (using Streamlit or Gradio) 
 I would also add a "Memory" abstraction to allow recurring characters across multiple storytelling sessions, and I would integrate LangSmith to trace the multi-agent token usage and evaluate the Judge's strictness over time.
 """
 
-def call_model(messages: List[Dict[str, str]], max_tokens: int = 2000, temperature: float = 0.7) -> str:
-    """
-    Calls the OpenAI API using gpt-3.5-turbo.
-    Supports both older (openai<1.0.0) and newer (openai>=1.0.0) SDK versions.
-    """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY environment variable not set. Please set it before running.")
-    
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages, # type: ignore
-            stream=False,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return resp.choices[0].message.content or ""
-    except ImportError:
-        openai.api_key = api_key
-        resp = openai.ChatCompletion.create( # type: ignore
-            model="gpt-3.5-turbo",
-            messages=messages,
-            stream=False,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return resp.choices[0].message["content"] # type: ignore
+def call_model(messages: List[Dict[str, str]], max_tokens=2000, temperature=0.7) -> str:
+    openai.api_key = os.getenv("OPENAI_API_KEY") # please use your own openai api key here.
+    resp = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=messages,
+        stream=False,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return resp.choices[0].message["content"]  # type: ignore
 
 
 # ==========================================
